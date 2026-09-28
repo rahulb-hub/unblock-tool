@@ -9,10 +9,12 @@ services:
       POSTGRES_PASSWORD: unblock
       POSTGRES_DB: unblock
     ports:
-      - "5432:5432"
+      # Host 5433 avoids clashing with a locally installed Postgres on 5432.
+      - "5433:5432"
     volumes:
       - unblock_pgdata:/var/lib/postgresql/data
-      # Runs every .sql file here (in order) on first container start only.
+      # Only enables the vector extension on first container start.
+      # Table schema is managed by Alembic (`alembic upgrade head`), not this dir.
       - ./storage/migrations:/docker-entrypoint-initdb.d
 
 volumes:

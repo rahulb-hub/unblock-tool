@@ -44,25 +44,66 @@ shared/      Types used by more than one track (see shared/models.py) —
    ```
    cp .env.example .env
    ```
-3. Start Postgres (with pgvector) and apply the initial schema automatically:
+3. Start Postgres (with pgvector). It's mapped to **host port 5433**, not the
+   default 5432, to avoid clashing with a locally installed Postgres:
    ```
-   docker-compose up -d
+   docker-compose up -d db
    ```
-4. Install Python dependencies:
+   On first container start this only enables the pgvector extension
+   (`storage/migrations/0001_initial_schema.sql`) — no tables exist yet.
+4. Create a virtualenv and install Python dependencies:
    ```
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install -r requirements.txt
    ```
-5. You should now have a running database at the `DATABASE_URL` in your `.env`,
-   with the schema in `storage/migrations/0001_initial_schema.sql` already applied.
+5. Create the tables by running the Alembic migrations:
+   ```
+   alembic upgrade head
+   ```
+6. You should now have a running database at the `DATABASE_URL` in your `.env`
+   (default `postgresql://unblock:unblock@localhost:5433/unblock`) with all
+   tables created: `channels`, `threads`, `messages`, `embeddings`,
+   `ingestion_runs`, `feedback`.
 
-## Making schema changes
+### Inspecting the database in DBeaver
 
-The first migration runs automatically because docker-compose mounts
-`storage/migrations/` into Postgres's init directory — but that only happens
-on the *first* container start. Once the team is actively working, adopt a
-real migration tool (e.g. Alembic) for further schema changes rather than
-editing `0001_initial_schema.sql` directly, so changes are tracked and
-re-runnable instead of applied by hand.
+Create a new PostgreSQL connection with:
+
+| Field    | Value      |
+|----------|------------|
+| Host     | `localhost`|
+| Port     | `5433`     |
+| Database | `unblock`  |
+| Username | `unblock`  |
+| Password | `unblock`  |
+
+Leave SSL disabled — it's a local dev container. Once connected, expand
+`unblock` → `Schemas` → `public` → `Tables` to browse the schema.
+
+## Schema & migrations (Dev 2)
+
+Schema is owned by SQLAlchemy models in `storage/models/` (declarative base in
+`storage/models/base.py`) and applied via Alembic (`alembic.ini`, `alembic/`).
+`storage/migrations/0001_initial_schema.sql` is legacy — it now only enables
+the `vector` extension on first container start; it no longer creates tables.
+
+To change the schema:
+1. Edit or add a model in `storage/models/` (and import it in
+   `storage/models/__init__.py` so Alembic sees it).
+2. Generate a migration:
+   ```
+   alembic revision --autogenerate -m "describe the change"
+   ```
+3. Review the generated file in `alembic/versions/` — autogenerate doesn't
+   always get pgvector imports or naming quite right, adjust if needed.
+4. Apply it:
+   ```
+   alembic upgrade head
+   ```
+
+Because Dev 1 (ingestion) and Dev 3 (retrieval) both write to and read from
+this schema, flag changes here to the team the same day they happen.
 
 ## Contribution workflow
 
