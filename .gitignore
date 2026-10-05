@@ -5,3 +5,6 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
+storage/checkpoints.json
+storage/checkpoints.json.run.lock
+output/threads.json

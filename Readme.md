@@ -81,6 +81,38 @@ Create a new PostgreSQL connection with:
 Leave SSL disabled — it's a local dev container. Once connected, expand
 `unblock` → `Schemas` → `public` → `Tables` to browse the schema.
 
+## Dev 1: Slack ingestion
+
+Create and install a Slack app in the target workspace with the bot scopes
+`channels:history` and `channels:read`, then invite the bot to each monitored
+public channel. For private channels, add the corresponding `groups:history`
+and `groups:read` scopes and invite the bot there as well. Put the bot token
+and channel IDs in `.env`; never commit the real token. `SLACK_CHANNEL_IDS`
+uses JSON list syntax, for example `["C0123ABCD456"]`.
+
+Run one backfill manually:
+
+```sh
+python -m ingestion.scripts.backfill --channel C0123ABCD456
+```
+
+Or omit `--channel` to use `SLACK_CHANNEL_IDS`. The pipeline reads each
+channel after its saved timestamp, follows Slack pagination cursors, fetches
+full replies for affected threads (including roots older than the checkpoint),
+groups and deduplicates messages, and filters bot/system/reaction noise. It
+writes the current batch as JSON to `output/threads.json` by default. Each
+thread includes its channel ID, root timestamp, root message, and ordered
+messages; these map to Dev 2's channel, thread, and message records.
+
+The JSON output is atomically replaced before any channel checkpoint advances.
+If output writing fails, the next run fetches the same messages again. The
+checkpoint file is `storage/checkpoints.json`; the script takes a non-blocking
+process lock so two scheduled runs cannot race over that checkpoint/output.
+Schedule `python -m ingestion.scripts.backfill` with cron or your job scheduler
+and keep runs single-instance. For example, a daily cron entry from the repo
+directory can run `python -m ingestion.scripts.backfill` and append logs to a
+managed log destination.
+
 ## Schema & migrations (Dev 2)
 
 Schema is owned by SQLAlchemy models in `storage/models/` (declarative base in

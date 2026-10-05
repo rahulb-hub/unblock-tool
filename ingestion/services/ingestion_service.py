@@ -30,6 +30,7 @@ class IngestionService:
         self._noise_filter = noise_filter
         self._deduplicator = deduplicator
         self._checkpoint_store = checkpoint_store
+        self._pending_checkpoints: dict[str, str] = {}
 
     async def ingest_channel(
         self,
@@ -74,10 +75,7 @@ class IngestionService:
             for message in messages
         )
 
-        self._checkpoint_store.update(
-            channel_id=channel_id,
-            timestamp=latest_timestamp,
-        )
+        self._pending_checkpoints[channel_id] = latest_timestamp
 
         logger.info(
             "Ingestion completed. "
@@ -89,6 +87,15 @@ class IngestionService:
         )
 
         return useful_threads
+
+    def commit_checkpoint(self, channel_id: str) -> None:
+        """Advance a channel after its output has been durably written."""
+        timestamp = self._pending_checkpoints.get(channel_id)
+        if timestamp is None:
+            return
+
+        self._checkpoint_store.update(channel_id, timestamp)
+        del self._pending_checkpoints[channel_id]
 
     async def _build_threads(
         self,

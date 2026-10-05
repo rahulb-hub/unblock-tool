@@ -29,7 +29,7 @@ class FakePaginator:
 
 
 class IngestionServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_incremental_reply_fetches_root_and_advances_checkpoint(self):
+    async def test_incremental_reply_fetches_root_and_defers_checkpoint(self):
         root = SlackMessage(
             channel_id="C123",
             ts="100.0",
@@ -66,6 +66,10 @@ class IngestionServiceTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(threads), 1)
             self.assertEqual(threads[0].root_message.ts, "100.0")
             self.assertEqual(len(threads[0].messages), 2)
+            self.assertEqual(checkpoint_store.get("C123"), "99.0")
+
+            service.commit_checkpoint("C123")
+
             self.assertEqual(checkpoint_store.get("C123"), "101.0")
 
 
