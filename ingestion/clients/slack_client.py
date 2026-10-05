@@ -71,6 +71,7 @@ class SlackClient:
     ) -> list[SlackMessage]:
 
         cursor: str | None = None
+        seen_cursors: set[str] = set()
         result: list[SlackMessage] = []
 
         while True:
@@ -98,6 +99,13 @@ class SlackClient:
 
             if not response.get("has_more") or not cursor:
                 break
+
+            if cursor in seen_cursors:
+                raise SlackClientError(
+                    f"Slack repeated a replies cursor for thread {thread_ts}"
+                )
+
+            seen_cursors.add(cursor)
 
 
         return result

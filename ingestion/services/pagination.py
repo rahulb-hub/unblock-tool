@@ -1,6 +1,7 @@
 import logging
 
 from ingestion.clients.slack_client import SlackClient
+from ingestion.exceptions import SlackClientError
 from ingestion.models.slack_message import SlackMessage
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class SlackPaginator:
     ) -> list[SlackMessage]:
 
         cursor: str | None = None
+        seen_cursors: set[str] = set()
         messages: list[SlackMessage] = []
 
         page_number = 0
@@ -60,6 +62,12 @@ class SlackPaginator:
             if not has_more or not next_cursor:
                 break
 
+            if next_cursor in seen_cursors:
+                raise SlackClientError(
+                    f"Slack repeated a history cursor for channel {channel_id}"
+                )
+
+            seen_cursors.add(next_cursor)
             cursor = next_cursor
 
         return messages
