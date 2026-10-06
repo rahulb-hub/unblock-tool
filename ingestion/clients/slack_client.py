@@ -125,6 +125,13 @@ class SlackClient:
 
         return response.get("permalink")
 
+    async def get_channel_name(self, channel_id: str) -> str | None:
+        response = await self._call_with_retry(
+            lambda: self._client.conversations_info(channel=channel_id)
+        )
+        channel = response.get("channel", {})
+        return channel.get("name")
+
     async def _call_with_retry(
         self,
         operation: Any,

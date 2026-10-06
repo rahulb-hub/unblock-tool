@@ -83,12 +83,26 @@ Leave SSL disabled — it's a local dev container. Once connected, expand
 
 ## Dev 1: Slack ingestion
 
-Create and install a Slack app in the target workspace with the bot scopes
-`channels:history` and `channels:read`, then invite the bot to each monitored
-public channel. For private channels, add the corresponding `groups:history`
-and `groups:read` scopes and invite the bot there as well. Put the bot token
-and channel IDs in `.env`; never commit the real token. `SLACK_CHANNEL_IDS`
-uses JSON list syntax, for example `["C0123ABCD456"]`.
+Create and install a Slack app in the target workspace with the bot token
+scopes `channels:history` and `channels:read`. Use the app's bot token (usually
+starts with `xoxb-`) as `SLACK_BOT_TOKEN`; do not put a user token (`xoxp-`) in
+this setting. Invite the bot to each monitored public channel.
+
+For private channels, add the bot scopes `groups:history` and `groups:read`,
+reinstall the app so the new scopes take effect, and invite the bot to each
+private channel. A scope alone does not grant access to a private channel.
+
+Use channel IDs, not channel names, in `SLACK_CHANNEL_IDS` and API paths. For
+example, `C0123ABCD456` is an ID-shaped value; replace it with the ID copied
+from the actual channel in your workspace. The channel and token must belong
+to the same Slack workspace. Keep tokens in `.env` and never commit them.
+`SLACK_CHANNEL_IDS` uses JSON list syntax, for example
+`["C0123ABCD456"]`.
+
+If Slack returns `channel_not_found`, verify the channel ID and workspace,
+confirm that the app was reinstalled after adding scopes, and confirm the bot
+was invited to the channel. Slack may return this error when the token cannot
+access a private channel as well as when the ID is invalid.
 
 Run one backfill manually:
 
@@ -112,6 +126,32 @@ Schedule `python -m ingestion.scripts.backfill` with cron or your job scheduler
 and keep runs single-instance. For example, a daily cron entry from the repo
 directory can run `python -m ingestion.scripts.backfill` and append logs to a
 managed log destination.
+
+### Ingestion API
+
+The API ingests one channel per request and writes channels, threads, and
+messages to the existing PostgreSQL schema. Set a private `INGESTION_API_KEY`
+in `.env`, then start the API:
+
+```sh
+uvicorn main:app --reload
+```
+
+Generate a private API key (for example, `openssl rand -hex 32`) and put it in
+`.env` as `INGESTION_API_KEY`. Trigger ingestion using the same value in the
+`X-API-Key` header. Replace the example channel ID and header value below:
+
+```sh
+curl -X POST http://localhost:8000/api/v1/ingestion/channels/${channel_id} \
+   -H "X-API-Key: YOUR_INGESTION_API_KEY"
+```
+
+The API commits the database transaction before advancing the channel
+checkpoint. Repeated requests upsert by Slack timestamp, so retries do not
+duplicate stored rows. Use `GET /api/v1/threads` or
+`GET /api/v1/threads/{thread_id}` with the same header to inspect stored data;
+`GET /health` checks the database connection. Interactive docs are at
+`http://localhost:8000/docs`.
 
 ## Schema & migrations (Dev 2)
 
