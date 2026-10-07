@@ -1,4 +1,4 @@
-"""Environment-based configuration for retrieval services."""
+"""Environment-based configuration for retrieval embeddings."""
 
 import os
 

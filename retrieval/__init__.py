@@ -1,9 +1,7 @@
-# Dev 3 — AI/Retrieval: embeddings, keyword + vector hybrid search,
-# merge & rank, Claude synthesis. Exposes the search endpoint bot/ calls.
+# Dev 3 — AI/Retrieval: embeddings, DB-backed hybrid search,
+# merge/rank, and citation-backed responses for bot/.
 
-from retrieval.claude_prompt import build_claude_messages
-from retrieval.embedding_service import EmbeddingService
-from retrieval.keyword_search import keyword_search
+from retrieval.embeddings import EmbeddingService
 from retrieval.models import (
 	EmbeddedThreadChunk,
 	EmbeddingResult,
@@ -12,28 +10,25 @@ from retrieval.models import (
 	StoredThreadEmbedding,
 	ThreadChunk,
 )
-from retrieval.ranking import reciprocal_rank_fusion
-from retrieval.sample_slack_threads import (
-	SAMPLE_QUERY_CASES,
-	SAMPLE_SLACK_THREADS,
-	run_sample_hybrid_search,
+from retrieval.search import (
+	RetrievalSearchService,
+	index_missing_thread_embeddings,
+	keyword_search_db,
+	reciprocal_rank_fusion,
+	vector_search_db,
 )
-from retrieval.vector_search import cosine_similarity, vector_search
 
 __all__ = [
 	"EmbeddedThreadChunk",
 	"EmbeddingResult",
 	"EmbeddingService",
 	"MergedSearchResult",
-	"SAMPLE_QUERY_CASES",
-	"SAMPLE_SLACK_THREADS",
+	"RetrievalSearchService",
 	"SearchHit",
 	"StoredThreadEmbedding",
 	"ThreadChunk",
-	"build_claude_messages",
-	"cosine_similarity",
-	"keyword_search",
+	"index_missing_thread_embeddings",
+	"keyword_search_db",
 	"reciprocal_rank_fusion",
-	"run_sample_hybrid_search",
-	"vector_search",
+	"vector_search_db",
 ]

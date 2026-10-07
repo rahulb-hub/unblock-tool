@@ -4,7 +4,8 @@ import logging
 import time
 from typing import Sequence
 
-from retrieval import config
+from retrieval.embeddings import config
+from retrieval.embeddings.providers import EmbeddingProvider, VoyageEmbeddingProvider
 from retrieval.exceptions import ChunkTooLongError, EmbeddingAPIError
 from retrieval.models import (
     EmbeddedThreadChunk,
@@ -12,7 +13,6 @@ from retrieval.models import (
     EmbeddingResult,
     ThreadChunk,
 )
-from retrieval.providers import EmbeddingProvider, VoyageEmbeddingProvider
 
 logger = logging.getLogger("retrieval.embeddings")
 

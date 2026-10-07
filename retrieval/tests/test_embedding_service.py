@@ -1,8 +1,7 @@
 import unittest
 
-from retrieval.embedding_service import EmbeddingService
+from retrieval.embeddings import EmbeddingService, EmbeddingProvider
 from retrieval.models import ThreadChunk
-from retrieval.providers import EmbeddingProvider
 
 
 class FakeProvider(EmbeddingProvider):
