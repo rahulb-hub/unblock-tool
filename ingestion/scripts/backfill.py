@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import fcntl
-import logging
 from pathlib import Path
 
 from ingestion.clients.slack_client import SlackClient
@@ -13,6 +12,7 @@ from ingestion.services.noise_filter import NoiseFilter
 from ingestion.services.pagination import SlackPaginator
 from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
+from shared.logging_config import configure_logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,13 +94,7 @@ async def run(args: argparse.Namespace | None = None) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format=(
-            "%(asctime)s %(levelname)s "
-            "%(name)s %(message)s"
-        ),
-    )
+    configure_logging()
 
     args = parse_args()
     settings = get_settings()

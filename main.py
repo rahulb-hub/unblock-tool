@@ -20,11 +20,13 @@ from ingestion.services.noise_filter import NoiseFilter
 from ingestion.services.pagination import SlackPaginator
 from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
+from shared.logging_config import configure_logging
 from storage.db import get_db
 from storage.models.message import Message
 from storage.models.thread import Thread
 from storage.thread_repository import persist_threads
 
+configure_logging()
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Unblock Ingestion API", version="1.0.0")
 
