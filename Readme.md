@@ -121,11 +121,9 @@ messages; these map to Dev 2's channel, thread, and message records.
 The JSON output is atomically replaced before any channel checkpoint advances.
 If output writing fails, the next run fetches the same messages again. The
 checkpoint file is `storage/checkpoints.json`; the script takes a non-blocking
-process lock so two scheduled runs cannot race over that checkpoint/output.
-Schedule `python -m ingestion.scripts.backfill` with cron or your job scheduler
-and keep runs single-instance. For example, a daily cron entry from the repo
-directory can run `python -m ingestion.scripts.backfill` and append logs to a
-managed log destination.
+process lock so two manual backfill runs cannot race over that
+checkpoint/output. Ongoing scheduled ingestion is handled by the API process
+described below.
 
 ### Ingestion API
 
@@ -134,7 +132,7 @@ messages to the existing PostgreSQL schema. Set a private `INGESTION_API_KEY`
 in `.env`, then start the API:
 
 ```sh
-uvicorn main:app --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 Generate a private API key (for example, `openssl rand -hex 32`) and put it in
@@ -152,6 +150,19 @@ duplicate stored rows. Use `GET /api/v1/threads` or
 `GET /api/v1/threads/{thread_id}` with the same header to inspect stored data;
 `GET /health` checks the database connection. Interactive docs are at
 `http://localhost:8000/docs`.
+
+### Scheduled ingestion
+
+The FastAPI process starts one background ingestion loop during application
+startup. It waits 300 seconds, reads `SLACK_CHANNEL_IDS`, and runs the same
+Slack ingestion and persistence flow for each configured channel. It then
+waits another 300 seconds and repeats. No separate cron process is required.
+
+Run exactly one API worker so only one scheduler loop is active:
+
+```sh
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+```
 
 ## Schema & migrations (Dev 2)
 

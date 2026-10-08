@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from hmac import compare_digest
 from time import perf_counter
@@ -14,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from ingestion.clients.slack_client import SlackClient
 from ingestion.config import get_settings
 from ingestion.exceptions import SlackClientError
+from ingestion.scheduler import run_ingestion_loop
 from ingestion.services.deduplicator import ThreadDeduplicator
 from ingestion.services.ingestion_service import IngestionService
 from ingestion.services.noise_filter import NoiseFilter
@@ -22,13 +25,61 @@ from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
 from shared.logging_config import configure_logging
 from storage.db import get_db
-from storage.models.message import Message
 from storage.models.thread import Thread
 from storage.thread_repository import persist_threads
 
 configure_logging()
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Unblock Ingestion API", version="1.0.0")
+
+async def _ingest_channel(channel_id: str) -> dict[str, int]:
+    settings = get_settings()
+    slack_client = SlackClient(
+        token=settings.slack_bot_token,
+        max_retries=settings.slack_max_retries,
+        initial_backoff_seconds=settings.slack_initial_backoff_seconds,
+    )
+    service = IngestionService(
+        slack_client=slack_client,
+        paginator=SlackPaginator(
+            slack_client=slack_client,
+            page_size=settings.slack_page_size,
+        ),
+        thread_grouper=ThreadGrouper(),
+        noise_filter=NoiseFilter(),
+        deduplicator=ThreadDeduplicator(),
+        checkpoint_store=CheckpointStore(file_path=settings.checkpoint_file),
+    )
+
+    channel_name = await slack_client.get_channel_name(channel_id)
+    threads = await service.ingest_channel(channel_id)
+    counts = await run_in_threadpool(
+        persist_threads,
+        threads,
+        channel_name or channel_id,
+    )
+    service.commit_checkpoint(channel_id)
+    return counts
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    scheduled_task = asyncio.create_task(
+        run_ingestion_loop(
+            ingest_channel=_ingest_channel,
+        )
+    )
+    try:
+        yield
+    finally:
+        scheduled_task.cancel()
+        await asyncio.gather(scheduled_task, return_exceptions=True)
+
+
+app = FastAPI(
+    title="Unblock Ingestion API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 
 class IngestionResponse(BaseModel):
@@ -82,40 +133,13 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 )
 async def ingest_channel(channel_id: str) -> IngestionResponse:
     try:
-        settings = get_settings()
+        started_at = perf_counter()
+        counts = await _ingest_channel(channel_id)
     except ValidationError as exc:
         raise HTTPException(
             status_code=503,
             detail="Configure SLACK_BOT_TOKEN before starting ingestion",
         ) from exc
-
-    slack_client = SlackClient(
-        token=settings.slack_bot_token,
-        max_retries=settings.slack_max_retries,
-        initial_backoff_seconds=settings.slack_initial_backoff_seconds,
-    )
-    service = IngestionService(
-        slack_client=slack_client,
-        paginator=SlackPaginator(
-            slack_client=slack_client,
-            page_size=settings.slack_page_size,
-        ),
-        thread_grouper=ThreadGrouper(),
-        noise_filter=NoiseFilter(),
-        deduplicator=ThreadDeduplicator(),
-        checkpoint_store=CheckpointStore(file_path=settings.checkpoint_file),
-    )
-
-    started_at = perf_counter()
-    try:
-        channel_name = await slack_client.get_channel_name(channel_id)
-        threads = await service.ingest_channel(channel_id)
-        counts = await run_in_threadpool(
-            persist_threads,
-            threads,
-            channel_name or channel_id,
-        )
-        service.commit_checkpoint(channel_id)
     except SlackClientError as exc:
         logger.exception("Slack ingestion failed for channel %s", channel_id)
         raise HTTPException(status_code=502, detail="Slack ingestion failed") from exc
