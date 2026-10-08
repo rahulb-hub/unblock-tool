@@ -1,6 +1,7 @@
 import argparse
 import asyncio
-import fcntl
+import contextlib
+import os
 from pathlib import Path
 
 from ingestion.clients.slack_client import SlackClient
@@ -13,6 +14,39 @@ from ingestion.services.pagination import SlackPaginator
 from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
 from shared.logging_config import configure_logging
+
+
+@contextlib.contextmanager
+def single_process_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a", encoding="utf-8") as lock_file:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError(
+                "Another Slack backfill is already running for this checkpoint."
+            ) from exc
+
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,14 +138,7 @@ def main() -> None:
         checkpoint_path.suffix + ".run.lock"
     )
 
-    with lock_path.open("a", encoding="utf-8") as lock_file:
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError(
-                "Another Slack backfill is already running for this checkpoint."
-            ) from exc
-
+    with single_process_lock(lock_path):
         asyncio.run(run(args))
 
 

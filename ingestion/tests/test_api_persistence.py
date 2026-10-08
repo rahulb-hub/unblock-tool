@@ -88,7 +88,7 @@ class ThreadRepositoryTest(unittest.TestCase):
 
 
 class IngestionApiTest(unittest.IsolatedAsyncioTestCase):
-    async def test_persists_before_committing_checkpoint(self):
+    async def test_persists_and_indexes_embeddings_before_committing_checkpoint(self):
         events = []
         thread = SlackThread(
             channel_id="C123",
@@ -121,7 +121,10 @@ class IngestionApiTest(unittest.IsolatedAsyncioTestCase):
                 events.append("commit_checkpoint")
 
         async def run_sync_in_thread(function, *args):
-            events.append("persist_database")
+            if function is main.persist_threads:
+                events.append("persist_database")
+            elif function is main.index_missing_embeddings:
+                events.append("index_embeddings")
             return function(*args)
 
         settings = SimpleNamespace(
@@ -145,6 +148,7 @@ class IngestionApiTest(unittest.IsolatedAsyncioTestCase):
                 "main.persist_threads",
                 return_value={"threads_saved": 1, "messages_saved": 1},
             ),
+            patch("main.index_missing_embeddings", return_value=1),
             patch("main.run_in_threadpool", new=run_sync_in_thread),
         ):
             response = await main.ingest_channel("C123")
@@ -155,11 +159,13 @@ class IngestionApiTest(unittest.IsolatedAsyncioTestCase):
                 "fetch_channel_name",
                 "ingest_slack",
                 "persist_database",
+                "index_embeddings",
                 "commit_checkpoint",
             ],
         )
         self.assertEqual(response.channel_id, "C123")
         self.assertEqual(response.threads_saved, 1)
+        self.assertEqual(response.embeddings_indexed, 1)
 
     def test_api_key_is_required_and_compared(self):
         with patch.dict(os.environ, {"INGESTION_API_KEY": "local-test-key"}):

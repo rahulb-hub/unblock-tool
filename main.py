@@ -23,8 +23,11 @@ from ingestion.services.noise_filter import NoiseFilter
 from ingestion.services.pagination import SlackPaginator
 from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
+from retrieval.exceptions import RetrievalError
+from retrieval.search import index_missing_thread_embeddings
 from shared.logging_config import configure_logging
-from storage.db import get_db
+from storage.db import SessionLocal, get_db
+from storage.models.message import Message
 from storage.models.thread import Thread
 from storage.thread_repository import persist_threads
 
@@ -57,6 +60,7 @@ async def _ingest_channel(channel_id: str) -> dict[str, int]:
         threads,
         channel_name or channel_id,
     )
+    counts["embeddings_indexed"] = await run_in_threadpool(index_missing_embeddings)
     service.commit_checkpoint(channel_id)
     return counts
 
@@ -86,6 +90,7 @@ class IngestionResponse(BaseModel):
     channel_id: str
     threads_saved: int
     messages_saved: int
+    embeddings_indexed: int
 
 
 class StoredMessageResponse(BaseModel):
@@ -116,6 +121,14 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def index_missing_embeddings() -> int:
+    session = SessionLocal()
+    try:
+        return index_missing_thread_embeddings(session)
+    finally:
+        session.close()
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict[str, str]:
     try:
@@ -143,21 +156,28 @@ async def ingest_channel(channel_id: str) -> IngestionResponse:
     except SlackClientError as exc:
         logger.exception("Slack ingestion failed for channel %s", channel_id)
         raise HTTPException(status_code=502, detail="Slack ingestion failed") from exc
-    except (SQLAlchemyError, OSError) as exc:
-        logger.exception("Ingestion persistence failed for channel %s", channel_id)
-        raise HTTPException(status_code=503, detail="Ingestion persistence failed") from exc
+    except (SQLAlchemyError, OSError, RetrievalError) as exc:
+        logger.exception("Ingestion storage/indexing failed for channel %s", channel_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Ingestion storage/indexing failed",
+        ) from exc
     except Exception as exc:
         logger.exception("Unexpected ingestion failure for channel %s", channel_id)
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
 
     logger.info(
-        "API ingestion completed channel=%s threads=%d messages=%d duration_seconds=%.3f",
+        "API ingestion completed channel=%s threads=%d messages=%d embeddings=%d duration_seconds=%.3f",
         channel_id,
         counts["threads_saved"],
         counts["messages_saved"],
+        counts["embeddings_indexed"],
         perf_counter() - started_at,
     )
-    return IngestionResponse(channel_id=channel_id, **counts)
+    return IngestionResponse(
+        channel_id=channel_id,
+        **counts,
+    )
 
 
 @app.get(
