@@ -28,19 +28,19 @@ class FakeSessionFactory:
 		return False
 
 
-def hit(source, rank):
+def hit(source, rank, thread_id="thread-learner-api-403", score=1.0):
 	return SearchHit(
 		document=StoredThreadEmbedding(
-			id="thread-learner-api-403",
+			id=thread_id,
 			chunk=ThreadChunk(
 				text="Learner API 403 was fixed by GitHub SSO re-auth.",
 				channel="eng-help",
 				author="alex",
-				permalink="https://slack.example/thread-learner-api-403",
+				permalink=f"https://slack.example/{thread_id}",
 			),
 			vector=[1.0, 0.0, 0.0],
 		),
-		score=1.0,
+		score=score,
 		rank=rank,
 		source=source,
 	)
@@ -66,6 +66,24 @@ class RetrievalSearchServiceTest(unittest.TestCase):
 			response.citations[0].permalink,
 			"https://slack.example/thread-learner-api-403",
 		)
+
+	def test_search_filters_weak_vector_only_results(self):
+		service = RetrievalSearchService(
+			embedding_service=FakeEmbeddingService(),
+			session_factory=FakeSessionFactory(),
+		)
+
+		with patch("retrieval.search.service.keyword_search_db", return_value=[]), patch(
+			"retrieval.search.service.vector_search_db",
+			return_value=[
+				hit("vector", 1, thread_id="strong-vector-match", score=0.42),
+				hit("vector", 2, thread_id="weak-vector-match", score=0.16),
+			],
+		):
+			response = service.search(SearchRequest(query="payment invoice retry"))
+
+		self.assertEqual([citation.thread_id for citation in response.citations], ["strong-vector-match"])
+		self.assertIn("strong-vector-match", response.citations[0].permalink)
 
 	def test_search_returns_no_match_answer_when_no_results_exist(self):
 		service = RetrievalSearchService(

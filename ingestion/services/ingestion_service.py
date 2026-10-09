@@ -69,6 +69,7 @@ class IngestionService:
             for thread in threads
             if self._noise_filter.has_useful_signal(thread)
         ]
+        useful_threads = await self._attach_thread_permalinks(useful_threads)
 
         latest_timestamp = max(
             message.ts
@@ -87,6 +88,46 @@ class IngestionService:
         )
 
         return useful_threads
+
+    async def _attach_thread_permalinks(
+        self,
+        threads: list[SlackThread],
+    ) -> list[SlackThread]:
+        enriched_threads: list[SlackThread] = []
+
+        for thread in threads:
+            if thread.permalink:
+                enriched_threads.append(thread)
+                continue
+
+            permalink = await self._slack_client.get_permalink(
+                channel_id=thread.channel_id,
+                message_ts=thread.thread_ts,
+            )
+            if permalink is None:
+                enriched_threads.append(thread)
+                continue
+
+            root_message = thread.root_message.model_copy(
+                update={"permalink": permalink}
+            )
+            messages = [
+                message.model_copy(update={"permalink": permalink})
+                if message.ts == thread.thread_ts
+                else message
+                for message in thread.messages
+            ]
+            enriched_threads.append(
+                thread.model_copy(
+                    update={
+                        "root_message": root_message,
+                        "messages": messages,
+                        "permalink": permalink,
+                    }
+                )
+            )
+
+        return enriched_threads
 
     def commit_checkpoint(self, channel_id: str) -> None:
         """Advance a channel after its output has been durably written."""

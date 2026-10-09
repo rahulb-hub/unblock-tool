@@ -24,8 +24,9 @@ from ingestion.services.pagination import SlackPaginator
 from ingestion.services.thread_grouper import ThreadGrouper
 from ingestion.storage.checkpoint import CheckpointStore
 from retrieval.exceptions import RetrievalError
-from retrieval.search import index_missing_thread_embeddings
+from retrieval.search import RetrievalSearchService, index_missing_thread_embeddings
 from shared.logging_config import configure_logging
+from shared.models import SearchRequest, SearchResponse
 from storage.db import SessionLocal, get_db
 from storage.models.message import Message
 from storage.models.thread import Thread
@@ -129,6 +130,10 @@ def index_missing_embeddings() -> int:
         session.close()
 
 
+def search_unblock(request: SearchRequest) -> SearchResponse:
+    return RetrievalSearchService().search(request)
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict[str, str]:
     try:
@@ -178,6 +183,25 @@ async def ingest_channel(channel_id: str) -> IngestionResponse:
         channel_id=channel_id,
         **counts,
     )
+
+
+@app.post(
+    "/api/v1/unblock",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        422: {"description": "Query must not be empty"},
+        503: {"description": "Unblock retrieval failed"},
+    },
+)
+async def unblock(request: SearchRequest) -> SearchResponse:
+    if not request.query.strip():
+        raise HTTPException(status_code=422, detail="Query must not be empty")
+
+    try:
+        return await run_in_threadpool(search_unblock, request)
+    except (SQLAlchemyError, RetrievalError) as exc:
+        logger.exception("Unblock retrieval failed")
+        raise HTTPException(status_code=503, detail="Unblock retrieval failed") from exc
 
 
 @app.get(

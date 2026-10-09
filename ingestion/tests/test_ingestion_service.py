@@ -14,10 +14,15 @@ class FakeSlackClient:
     def __init__(self, replies):
         self.replies = replies
         self.requested_threads = []
+        self.requested_permalinks = []
 
     async def fetch_thread_replies(self, channel_id, thread_ts):
         self.requested_threads.append((channel_id, thread_ts))
         return self.replies
+
+    async def get_permalink(self, channel_id, message_ts):
+        self.requested_permalinks.append((channel_id, message_ts))
+        return f"https://slack.example/{channel_id}/{message_ts}"
 
 
 class FakePaginator:
@@ -63,9 +68,18 @@ class IngestionServiceTest(unittest.IsolatedAsyncioTestCase):
             threads = await service.ingest_channel("C123")
 
             self.assertEqual(slack_client.requested_threads, [("C123", "100.0")])
+            self.assertEqual(slack_client.requested_permalinks, [("C123", "100.0")])
             self.assertEqual(len(threads), 1)
             self.assertEqual(threads[0].root_message.ts, "100.0")
+            self.assertEqual(
+                threads[0].root_message.permalink,
+                "https://slack.example/C123/100.0",
+            )
             self.assertEqual(len(threads[0].messages), 2)
+            self.assertEqual(
+                threads[0].messages[0].permalink,
+                "https://slack.example/C123/100.0",
+            )
             self.assertEqual(checkpoint_store.get("C123"), "99.0")
 
             service.commit_checkpoint("C123")

@@ -10,6 +10,9 @@ from shared.models import Citation, SearchRequest, SearchResponse
 from storage.db import SessionLocal
 
 
+MIN_VECTOR_RELEVANCE_SCORE = 0.30
+
+
 class RetrievalSearchService:
     """Search real ingested Slack data and return the shared bot response shape."""
 
@@ -39,7 +42,14 @@ class RetrievalSearchService:
         query_embedding = self.embedding_service.embed_query(query)
         keyword_hits = keyword_search_db(session, query, limit=limit * 2)
         vector_hits = vector_search_db(session, query_embedding.vector, limit=limit * 2)
-        return reciprocal_rank_fusion(keyword_hits, vector_hits, limit=limit)
+        results = reciprocal_rank_fusion(keyword_hits, vector_hits, limit=limit * 2)
+        relevant_results = [
+            result
+            for result in results
+            if result.keyword_rank is not None
+            or result.vector_score >= MIN_VECTOR_RELEVANCE_SCORE
+        ]
+        return relevant_results[:limit]
 
     def _build_answer(self, query: str, results: list[MergedSearchResult]) -> str:
         if not results:

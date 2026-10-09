@@ -8,6 +8,7 @@ from fastapi import HTTPException
 import main
 from ingestion.models.slack_message import SlackMessage
 from ingestion.models.thread import SlackThread
+from shared.models import Citation, SearchResponse
 from storage.thread_repository import persist_threads
 
 
@@ -174,6 +175,38 @@ class IngestionApiTest(unittest.IsolatedAsyncioTestCase):
                 main.require_api_key("wrong-key")
 
         self.assertEqual(error.exception.status_code, 401)
+
+    async def test_unblock_endpoint_returns_retrieval_response(self):
+        async def run_sync_in_thread(function, *args):
+            return function(*args)
+
+        expected_response = SearchResponse(
+            answer="Users saw access denied because reset-session tokens missed billing scopes.",
+            citations=[
+                Citation(
+                    thread_id="1700000000.000001",
+                    permalink="https://slack.example/thread",
+                    snippet="Password reset token missed billing:read scope.",
+                )
+            ],
+        )
+
+        with (
+            patch("main.search_unblock", return_value=expected_response) as search_unblock,
+            patch("main.run_in_threadpool", new=run_sync_in_thread),
+        ):
+            response = await main.unblock(main.SearchRequest(query="access denied after password reset"))
+
+        search_unblock.assert_called_once()
+        self.assertEqual(response, expected_response)
+
+    async def test_unblock_endpoint_rejects_blank_query(self):
+        request = main.SearchRequest(query="   ")
+
+        with self.assertRaises(HTTPException) as error:
+            await main.unblock(request)
+
+        self.assertEqual(error.exception.status_code, 422)
 
 
 if __name__ == "__main__":
